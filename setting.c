@@ -31,6 +31,14 @@ typedef struct
   int data[SUBFRAME][MINISLOT];
 } Schedule;
 
+typedef struct list Link;
+typedef struct list
+{
+  int drone_num;
+  Link *next;
+} Link;
+
+Link *Priority_list;
 
 Schedule *round_robin (Graph *setting)
 {
@@ -245,6 +253,7 @@ Schedule *round_robin (Graph *setting)
       }
     }
 
+    if (is_video == false) break;
     is_video = false;
   }
 
@@ -519,5 +528,270 @@ Schedule *evenly_distribute (Graph *setting)
   return result;
 }
 
+Schedule *priority (Graph *setting)
+{
+  Schedule *result = (Schedule *) calloc (1, sizeof (Schedule));
 
+  //TC
+  for (int i = 0; i < 4; i++)
+    for (int j = 1; j <= PILOT(TC_SLOT); j++)
+      result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
+
+  //TM
+  double tm_time;
+  int tm_slot, tm_location = 0, tm_subframe = 0;
+  int temp;
+  for (int i = 1; i <= setting->drone; i++)
+  {
+    tm_time = TM_SIZE / setting->rate[i-1];
+    tm_slot = ceil(tm_time / ((double) SUBFRAME_SIZE / MINISLOT));
+    
+    if (tm_subframe >= 4)
+    {
+      printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
+      printf ("NO MORE SLOT\n");
+      for (int j = 1; j < SUBFRAME / 4; j++)
+        memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                (sizeof (int) * MINISLOT * 4));
+      return result;
+    }
+
+    if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
+    {
+      tm_slot += 4;
+      for (int j = 0; j < PILOT(tm_slot); j++)
+        result->data[tm_subframe][tm_location + j] = i;
+
+      tm_location += PILOT(tm_slot);
+        
+      if (WITHOUT_TC - tm_location <= 5)
+      {
+        tm_subframe++;
+        tm_location = 0;
+      }
+    }
+
+    else
+    {
+      temp = ((3 - tm_subframe) * PILOT_CHECK(WITHOUT_TC)) +\
+             PILOT_CHECK(WITHOUT_TC - tm_location);
+      if (temp < tm_slot)
+      {
+        printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
+        printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
+        for (int j = 1; j < SUBFRAME / 4; j++)
+          memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                  (sizeof (int) * MINISLOT * 4));
+        return result;
+      }
+
+      while (true)
+      {
+        if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
+        {
+          tm_slot += 4;
+          for (int j = 0; j < PILOT(tm_slot); j++)
+            result->data[tm_subframe][tm_location + j] = i;
+
+          tm_location += PILOT(tm_slot);
+
+          if (WITHOUT_TC - tm_location <= 5)
+          {
+            tm_subframe++;
+            tm_location = 0;
+          }
+
+          break;
+        }
+
+        else
+        {
+          for (int j = tm_location; j < WITHOUT_TC; j++)
+            result->data[tm_subframe][j] = i;
+          
+          tm_slot -= PILOT_CHECK(WITHOUT_TC - tm_location);
+          tm_subframe++;
+          tm_location = 0;
+        }
+      }
+    }
+
+    for (int j = 0; j < SUBFRAME / 4; j++)
+      memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+              (sizeof (int) * MINISLOT * 4));
+
+  }
+
+  // Ready to put media
+  int remain_data[SUBFRAME - 1];
+  for (int i = 0; i < 4; i++)
+  {
+    if (i < tm_subframe)       remain_data[i] = 0;
+    else if (i == tm_subframe) remain_data[i] = WITHOUT_TC - tm_location;
+    else                       remain_data[i] = WITHOUT_TC;
+    
+    if (remain_data[i] <= 5) remain_data[i] = 0;
+  }  
+  
+  for (int i = 0; i < SUBFRAME / 4; i++)
+    memcpy (remain_data, ((void *) result) + (sizeof (int) * 4 * i),\
+            (sizeof (int) * 4));
+
+  Link *temp_list, *before_list = NULL;
+  bool is_last = false;
+  for (int i = 0; i < setting->drone; i++)
+  {
+    Link *temp_list = (Link *) calloc (1, sizeof (Link));
+    temp_list->drone_num = i+1;
+
+    if (i == 0)
+    {
+      Priority_list = temp_list;
+      continue;
+    }
+
+    is_last = true;
+    for (Link *j = Priority_list; j != NULL; j = j->next)
+    {
+      if (setting->rate[j->drone_num - 1] < setting->rate[i])
+      {
+        if (before_list == NULL)
+        {
+          temp_list->next = Priority_list;
+          Priority_list = temp_list;
+        }
+
+        else
+        {
+          before_list->next = temp_list;
+          temp_list->next = j;
+        }
+
+        is_last = false;
+        break;
+      }
+
+      before_list = j;
+    }
+
+    if (is_last == true)
+      before_list->next = temp_list;
+  }
+
+  //
+
+  // Media
+  int subframe_slot = 0;
+  int temp_location;
+  int priority_num;
+  double media_time;
+  int media_num, media_size, media_slot;
+  bool is_video = true;
+
+  while (true)
+  {
+    temp_list = Priority_list;
+    for (int i = 1; i <= setting->drone; i++)
+    {
+      priority_num = temp_list->drone_num;
+
+      if (is_video == true) 
+      {
+        media_num = setting->video[i-1];
+        media_size = VIDEO_SIZE;
+      }
+      else  
+      {
+        media_num = setting->audio[i-1];
+        media_size = AUDIO_SIZE;
+      }
+
+      while (media_num != 0)
+      {
+        media_num--;
+        media_time = media_size / setting->rate[priority_num-1];
+        media_slot = ceil(media_time / ((double) SUBFRAME_SIZE / MINISLOT));
+        if (subframe_slot >= SUBFRAME - 1)
+        {
+          if (is_video == true)
+            printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n",\
+                    priority_num, setting->video[priority_num-1] - media_num);
+          else
+            printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
+                    priority_num, setting->audio[priority_num-1] - media_num);
+          printf ("NO MORE SLOT\n");
+          return result;
+        }
+
+        if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
+        {
+          media_slot += 4;
+          temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
+          for (int j = 0; j < PILOT(media_slot); j++)
+            result->data[subframe_slot][temp_location + j] = priority_num;
+
+          remain_data[subframe_slot] -= PILOT(media_slot);
+        
+          if (remain_data[subframe_slot] <= 5)
+            subframe_slot++;
+        }
+      
+        else
+        {
+          temp = 0;
+          for (int j = 0; j < SUBFRAME - 1; j++)
+            temp += PILOT_CHECK(remain_data[subframe_slot]);
+
+          if (temp < media_slot)
+          {
+            if (is_video == true)
+              printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n",\
+                      priority_num, setting->video[priority_num-1] - media_num);
+            else
+              printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
+                      priority_num, setting->audio[priority_num-1] - media_num);
+            printf ("The DATA is TOO big\n");  
+            return result;
+          }
+
+          while (true)
+          {
+            if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
+            {
+              media_slot += 4;
+              temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
+              for (int k = 0; k < PILOT(media_slot); k++)
+                result->data[subframe_slot][temp_location + k] = priority_num;
+
+              remain_data[subframe_slot] -= PILOT(media_slot);
+
+              if (remain_data[subframe_slot] <= 5)
+                subframe_slot++;
+
+              break;
+            }
+
+            else
+            {
+              temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
+              for (int k = 0; k < remain_data[subframe_slot]; k++)
+                result->data[subframe_slot][temp_location + k] = priority_num;
+          
+              media_slot -= PILOT_CHECK(remain_data[subframe_slot]);
+              remain_data[subframe_slot] = 0;
+              subframe_slot++;
+            }
+          }
+        }
+      }
+      
+      temp_list = temp_list->next;
+    }
+
+    if (is_video == false) break;
+    is_video = false;
+  }
+
+  return result;
+}
    
