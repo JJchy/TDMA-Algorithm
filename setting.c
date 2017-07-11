@@ -638,7 +638,7 @@ Schedule *priority (Graph *setting)
   }  
   
   for (int i = 0; i < SUBFRAME / 4; i++)
-    memcpy (((void *) result) + (sizeof (int) * 4 * i),\
+    memcpy (((void *) remain_data) + (sizeof (int) * 4 * i),\
             remain_data, (sizeof (int) * 4));
 
   Link *temp_list, *before_list = NULL;
@@ -819,7 +819,7 @@ int main ()
     setting->audio[i] = 1;
   }
 
-  Schedule *result = round_robin (setting);
+  Schedule *result = priority (setting);
 
   int cut = 55;
   for (int i = 0; i < SUBFRAME; i++)
