@@ -8,12 +8,12 @@
 #define MINISLOT 220
 #define SUBFRAME_SIZE 40000 // us
 #define RATIO 3 // 1:3
-#define PILOT(x) (ceil((double)((x)-4)/RATIO)+(x)+4) // Allocation
+#define PILOT(x) (ceil(((double)((x)-4))/RATIO)+(x)+4) // Allocation
 #define PILOT_CHECK(x) (floor(((double)RATIO/(RATIO+1))*((x)-4))) // Check
 
 #define TC_SLOT PILOT(30)       // 4.265Mbps, 2500Bytes
 #define WITHOUT_TC (MINISLOT)-(TC_SLOT)
-#define SLOT_LOCATION(x) (190-(x))
+#define SLOT_LOCATION(x) (WITHOUT_TC-(x))
 #define TM_SIZE 8000     // 1000Bytes
 #define VIDEO_SIZE 20480 // 2560Bytes
 #define AUDIO_SIZE 1184  // 148Bytes
@@ -46,7 +46,7 @@ Schedule *round_robin (Graph *setting)
 
   //TC
   for (int i = 0; i < 4; i++)
-    for (int j = 1; j <= PILOT(TC_SLOT); j++)
+    for (int j = 1; j <= TC_SLOT; j++)
       result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
 
   //TM
@@ -57,14 +57,14 @@ Schedule *round_robin (Graph *setting)
   {
     tm_time = TM_SIZE / setting->rate[i-1];
     tm_slot = ceil(tm_time / ((double) SUBFRAME_SIZE / MINISLOT));
-    
+
     if (tm_subframe >= 4)
     {
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
       printf ("NO MORE SLOT\n");
       for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                (sizeof (int) * MINISLOT * 4));
+        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                result, (sizeof (int) * MINISLOT * 4));
       return result;
     }
 
@@ -92,8 +92,8 @@ Schedule *round_robin (Graph *setting)
         printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
         printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
         for (int j = 1; j < SUBFRAME / 4; j++)
-          memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                  (sizeof (int) * MINISLOT * 4));
+          memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                  result, (sizeof (int) * MINISLOT * 4));
         return result;
       }
 
@@ -129,8 +129,8 @@ Schedule *round_robin (Graph *setting)
     }
 
     for (int j = 0; j < SUBFRAME / 4; j++)
-      memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-              (sizeof (int) * MINISLOT * 4));
+      memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+              result, (sizeof (int) * MINISLOT * 4));
 
   }
 
@@ -146,8 +146,8 @@ Schedule *round_robin (Graph *setting)
   }  
   
   for (int i = 0; i < SUBFRAME / 4; i++)
-    memcpy (remain_data, ((void *) result) + (sizeof (int) * 4 * i),\
-            (sizeof (int) * 4));
+    memcpy (((void *) remain_data) + (sizeof (int) * 4 * i),\
+            remain_data, (sizeof (int) * 4));
 
   //
 
@@ -207,7 +207,12 @@ Schedule *round_robin (Graph *setting)
         {
           temp = 0;
           for (int j = 0; j < SUBFRAME - 1; j++)
-            temp += PILOT_CHECK(remain_data[subframe_slot]);
+          {
+            if (remain_data[j] <= 5) 
+              temp += 0;
+            else 
+              temp += PILOT_CHECK(remain_data[j]);
+          }
 
           if (temp < media_slot)
           {
@@ -284,7 +289,7 @@ Schedule *evenly_distribute (Graph *setting)
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n",  i);
       printf ("NO MORE SLOT\n");
       for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j), result,\
                 (sizeof (int) * MINISLOT * 4));
       return result;
     }
@@ -313,8 +318,8 @@ Schedule *evenly_distribute (Graph *setting)
         printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
         printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
         for (int j = 1; j < SUBFRAME / 4; j++)
-          memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                  (sizeof (int) * MINISLOT * 4));
+          memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                  result, (sizeof (int) * MINISLOT * 4));
         return result;
       }
 
@@ -421,8 +426,8 @@ Schedule *evenly_distribute (Graph *setting)
         printf ("NO MORE SLOT\n");
           
         for (int j = 0; j < SUBFRAME / 4; j++)
-          memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                  (sizeof (int) * MINISLOT * 4));
+          memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                  result, (sizeof (int) * MINISLOT * 4));
 
         return result;
       }
@@ -457,8 +462,8 @@ Schedule *evenly_distribute (Graph *setting)
           printf ("The DATA is TOO big\n");  
           
           for (int j = 0; j < SUBFRAME / 4; j++)
-            memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                    (sizeof (int) * MINISLOT * 4));
+            memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                    result, (sizeof (int) * MINISLOT * 4));
           
           return result;
         }
@@ -522,8 +527,8 @@ Schedule *evenly_distribute (Graph *setting)
   }
 
   for (int j = 0; j < SUBFRAME / 4; j++)
-    memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-            (sizeof (int) * MINISLOT * 4));
+    memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+            result, (sizeof (int) * MINISLOT * 4));
 
   return result;
 }
@@ -534,7 +539,7 @@ Schedule *priority (Graph *setting)
 
   //TC
   for (int i = 0; i < 4; i++)
-    for (int j = 1; j <= PILOT(TC_SLOT); j++)
+    for (int j = 1; j <= TC_SLOT; j++)
       result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
 
   //TM
@@ -551,8 +556,8 @@ Schedule *priority (Graph *setting)
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
       printf ("NO MORE SLOT\n");
       for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                (sizeof (int) * MINISLOT * 4));
+        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                result, (sizeof (int) * MINISLOT * 4));
       return result;
     }
 
@@ -580,8 +585,8 @@ Schedule *priority (Graph *setting)
         printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
         printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
         for (int j = 1; j < SUBFRAME / 4; j++)
-          memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                  (sizeof (int) * MINISLOT * 4));
+          memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+                  result, (sizeof (int) * MINISLOT * 4));
         return result;
       }
 
@@ -617,8 +622,8 @@ Schedule *priority (Graph *setting)
     }
 
     for (int j = 0; j < SUBFRAME / 4; j++)
-      memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-              (sizeof (int) * MINISLOT * 4));
+      memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+              result, (sizeof (int) * MINISLOT * 4));
 
   }
 
@@ -634,8 +639,8 @@ Schedule *priority (Graph *setting)
   }  
   
   for (int i = 0; i < SUBFRAME / 4; i++)
-    memcpy (remain_data, ((void *) result) + (sizeof (int) * 4 * i),\
-            (sizeof (int) * 4));
+    memcpy (((void *) result) + (sizeof (int) * 4 * i),\
+            remain_data, (sizeof (int) * 4));
 
   Link *temp_list, *before_list = NULL;
   bool is_last = false;
@@ -794,4 +799,41 @@ Schedule *priority (Graph *setting)
 
   return result;
 }
-   
+  
+int main ()
+{
+  Graph *setting = (Graph *) calloc (1, sizeof (Graph));
+
+  setting->drone = 7;
+  setting->rate[0] = 0.975;
+  setting->rate[1] = 0.525;
+  setting->rate[2] = 1.42;
+  setting->rate[3] = 3.2;
+  setting->rate[4] = 1.06;
+  setting->rate[5] = 2.84;
+  setting->rate[6] = 4.265;
+
+  for (int i = 0; i < setting->drone; i++)
+  {
+    setting->video[i] = 1;
+    setting->audio[i] = 1;
+  }
+
+  Schedule *result = round_robin (setting);
+
+  int cut = 55;
+  for (int i = 0; i < SUBFRAME; i++)
+  {
+    for (int j = 0; j < 4; j++)
+    {
+      for (int k = 0; k < cut; k++)
+        printf ("%2d", result->data[i][(cut * j) + k]);
+      printf ("\n");
+    }
+    printf ("/\n");
+  }
+}
+
+
+
+
