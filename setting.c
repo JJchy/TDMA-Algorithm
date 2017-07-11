@@ -208,9 +208,7 @@ Schedule *round_robin (Graph *setting)
           temp = 0;
           for (int j = 0; j < SUBFRAME - 1; j++)
           {
-            if (remain_data[j] <= 5) 
-              temp += 0;
-            else 
+            if (remain_data[j] > 5)  
               temp += PILOT_CHECK(remain_data[j]);
           }
 
@@ -272,7 +270,7 @@ Schedule *evenly_distribute (Graph *setting)
 
   //TC
   for (int i = 0; i < 4; i++)
-    for (int j = 1; j <= PILOT(TC_SLOT); j++)
+    for (int j = 1; j <= TC_SLOT; j++)
       result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
 
   //TM
@@ -449,7 +447,8 @@ Schedule *evenly_distribute (Graph *setting)
       {
         temp = 0;
         for (int j = 0; j < SUBFRAME / 6; j++)
-          temp += PILOT_CHECK(remain_data[subframe_slot]);
+          if (remain_data[j] > 5)
+            temp += PILOT_CHECK(remain_data[j]);
 
         if (temp < media_slot)
         {
@@ -745,7 +744,8 @@ Schedule *priority (Graph *setting)
         {
           temp = 0;
           for (int j = 0; j < SUBFRAME - 1; j++)
-            temp += PILOT_CHECK(remain_data[subframe_slot]);
+            if (remain_data[j] > 5)
+              temp += PILOT_CHECK(remain_data[j]);
 
           if (temp < media_slot)
           {
