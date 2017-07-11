@@ -603,7 +603,7 @@ Schedule *modified_RR (Graph *setting)
     if (tm_subframe >= 4)
     {
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", priority_num);
-      printf ("(Success : %d)\n", i);
+      printf ("(Success : %d)\n", i - 1);
       printf ("NO MORE SLOT\n");
       for (int j = 1; j < SUBFRAME / 4; j++)
         memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
@@ -634,7 +634,7 @@ Schedule *modified_RR (Graph *setting)
       {
         printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", priority_num);
         printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", priority_num);
-        printf ("(Success : %d)\n", i);
+        printf ("(Success : %d)\n", i - 1);
         for (int j = 1; j < SUBFRAME / 4; j++)
           memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
                   result, (sizeof (int) * MINISLOT * 4));
@@ -736,7 +736,7 @@ Schedule *modified_RR (Graph *setting)
             printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
                     priority_num,\
                     setting->audio[priority_num-1] - media_num);
-          printf ("(Success : %d)\n", i);
+          printf ("(Success : %d)\n", i - 1);
           printf ("NO MORE SLOT\n");
           return result;
         }
@@ -771,7 +771,7 @@ Schedule *modified_RR (Graph *setting)
               printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
                       priority_num,\
                       setting->audio[priority_num-1] - media_num);
-            printf ("(Success : %d)\n", i);
+            printf ("(Success : %d)\n", i - 1);
             printf ("The DATA is TOO big\n");  
             return result;
           }
