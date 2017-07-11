@@ -2,13 +2,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <math.h>
 
 #define SUBFRAME 25
 #define MINISLOT 220
 #define SUBFRAME_SIZE 40000 // us
+#define RATIO 3 // 1:3
+#define PILOT(x) (ceil((double)((x)-4)/RATIO)+(x)+4) // Allocation
+#define PILOT_CHECK(x) (floor(((double)RATIO/(RATIO+1))*((x)-4))) // Check
 
-#define TC_SLOT 30       // 4.265Mbps, 2500Bytes
-#define WITHOUT_TC 190
+#define TC_SLOT PILOT(30)       // 4.265Mbps, 2500Bytes
+#define WITHOUT_TC (MINISLOT)-(TC_SLOT)
 #define SLOT_LOCATION(x) (190-(x))
 #define TM_SIZE 8000     // 1000Bytes
 #define VIDEO_SIZE 20480 // 2560Bytes
@@ -27,25 +31,28 @@ typedef struct
   int data[SUBFRAME][MINISLOT];
 } Schedule;
 
+
 Schedule *round_robin (Graph *setting)
 {
   Schedule *result = (Schedule *) calloc (1, sizeof (Schedule));
 
-  for (int i = 0; i < SUBFRAME / 4; i++)
-    for (int j = 1; j <= TC_SLOT; j++)
+  //TC
+  for (int i = 0; i < 4; i++)
+    for (int j = 1; j <= PILOT(TC_SLOT); j++)
       result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
 
+  //TM
   double tm_time;
   int tm_slot, tm_location = 0, tm_subframe = 0;
   int temp;
   for (int i = 1; i <= setting->drone; i++)
   {
     tm_time = TM_SIZE / setting->rate[i-1];
-    tm_slot = (tm_time / ((double) SUBFRAME_SIZE / MINISLOT)) + 1; // ceiling
+    tm_slot = ceil(tm_time / ((double) SUBFRAME_SIZE / MINISLOT));
     
     if (tm_subframe >= 4)
     {
-      printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n",  i);
+      printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
       printf ("NO MORE SLOT\n");
       for (int j = 1; j < SUBFRAME / 4; j++)
         memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
@@ -53,15 +60,15 @@ Schedule *round_robin (Graph *setting)
       return result;
     }
 
-    if (WITHOUT_TC - tm_location >= tm_slot + 4) // preamble
+    if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
     {
       tm_slot += 4;
-      for (int j = 0; j < tm_slot; j++)
+      for (int j = 0; j < PILOT(tm_slot); j++)
         result->data[tm_subframe][tm_location + j] = i;
 
-      tm_location += tm_slot;
+      tm_location += PILOT(tm_slot);
         
-      if (WITHOUT_TC - tm_location <= 4)
+      if (WITHOUT_TC - tm_location <= 5)
       {
         tm_subframe++;
         tm_location = 0;
@@ -70,11 +77,12 @@ Schedule *round_robin (Graph *setting)
 
     else
     {
-      temp = ((4 - tm_subframe) * (WITHOUT_TC - 4)) - tm_location;
+      temp = ((3 - tm_subframe) * PILOT_CHECK(WITHOUT_TC)) +\
+             PILOT_CHECK(WITHOUT_TC - tm_location);
       if (temp < tm_slot)
       {
         printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
-        printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i);  
+        printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
         for (int j = 1; j < SUBFRAME / 4; j++)
           memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
                   (sizeof (int) * MINISLOT * 4));
@@ -83,15 +91,15 @@ Schedule *round_robin (Graph *setting)
 
       while (true)
       {
-        tm_slot += 4;
-        if (WITHOUT_TC - tm_location >= tm_slot)
+        if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
         {
-          for (int j = 0; j < tm_slot; j++)
+          tm_slot += 4;
+          for (int j = 0; j < PILOT(tm_slot); j++)
             result->data[tm_subframe][tm_location + j] = i;
 
-          tm_location += tm_slot;
+          tm_location += PILOT(tm_slot);
 
-          if (WITHOUT_TC - tm_location <= 4)
+          if (WITHOUT_TC - tm_location <= 5)
           {
             tm_subframe++;
             tm_location = 0;
@@ -105,7 +113,7 @@ Schedule *round_robin (Graph *setting)
           for (int j = tm_location; j < WITHOUT_TC; j++)
             result->data[tm_subframe][j] = i;
           
-          tm_slot -= WITHOUT_TC - tm_location;
+          tm_slot -= PILOT_CHECK(WITHOUT_TC - tm_location);
           tm_subframe++;
           tm_location = 0;
         }
@@ -118,6 +126,7 @@ Schedule *round_robin (Graph *setting)
 
   }
 
+  // Ready to put media
   int remain_data[SUBFRAME - 1];
   for (int i = 0; i < 4; i++)
   {
@@ -125,7 +134,7 @@ Schedule *round_robin (Graph *setting)
     else if (i == tm_subframe) remain_data[i] = WITHOUT_TC - tm_location;
     else                       remain_data[i] = WITHOUT_TC;
     
-    if (remain_data[i] < 4) remain_data[i] = 0;
+    if (remain_data[i] <= 5) remain_data[i] = 0;
   }  
   
   for (int i = 0; i < SUBFRAME / 4; i++)
@@ -134,6 +143,7 @@ Schedule *round_robin (Graph *setting)
 
   //
 
+  // Media
   int subframe_slot = 0;
   int temp_location;
   double media_time;
@@ -159,7 +169,7 @@ Schedule *round_robin (Graph *setting)
       {
         media_num--;
         media_time = media_size / setting->rate[i-1];
-        media_slot = (media_time / ((double) SUBFRAME_SIZE / MINISLOT)) + 1;
+        media_slot = ceil(media_time / ((double) SUBFRAME_SIZE / MINISLOT));
         if (subframe_slot >= SUBFRAME - 1)
         {
           if (is_video == true)
@@ -172,25 +182,24 @@ Schedule *round_robin (Graph *setting)
           return result;
         }
 
-        if (remain_data[subframe_slot] >= media_slot + 4)
+        if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
         {
           media_slot += 4;
-          temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
-          for (int j = 0; j < media_slot; j++)
+          temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
+          for (int j = 0; j < PILOT(media_slot); j++)
             result->data[subframe_slot][temp_location + j] = i;
 
-          remain_data[subframe_slot] -= media_slot;
+          remain_data[subframe_slot] -= PILOT(media_slot);
         
-          if (remain_data[subframe_slot] <= 4)
+          if (remain_data[subframe_slot] <= 5)
             subframe_slot++;
-
         }
       
         else
         {
           temp = 0;
           for (int j = 0; j < SUBFRAME - 1; j++)
-            temp += remain_data[subframe_slot] - 4;
+            temp += PILOT_CHECK(remain_data[subframe_slot]);
 
           if (temp < media_slot)
           {
@@ -206,16 +215,16 @@ Schedule *round_robin (Graph *setting)
 
           while (true)
           {
-            media_slot += 4;
-            if (media_slot <= remain_data[subframe_slot])
+            if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
             {
-              temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
-              for (int k = 0; k < media_slot; k++)
+              media_slot += 4;
+              temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
+              for (int k = 0; k < PILOT(media_slot); k++)
                 result->data[subframe_slot][temp_location + k] = i;
 
-              remain_data[subframe_slot] -= media_slot;
+              remain_data[subframe_slot] -= PILOT(media_slot);
 
-              if (remain_data[subframe_slot] <= 4)
+              if (remain_data[subframe_slot] <= 5)
                 subframe_slot++;
 
               break;
@@ -223,14 +232,13 @@ Schedule *round_robin (Graph *setting)
 
             else
             {
-              temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
+              temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
               for (int k = 0; k < remain_data[subframe_slot]; k++)
                 result->data[subframe_slot][temp_location + k] = i;
           
-              media_slot -= remain_data[subframe_slot];
+              media_slot -= PILOT_CHECK(remain_data[subframe_slot]);
               remain_data[subframe_slot] = 0;
               subframe_slot++;
-
             }
           }
         }
@@ -243,21 +251,24 @@ Schedule *round_robin (Graph *setting)
   return result;
 }
 
+
 Schedule *evenly_distribute (Graph *setting)
 {
   Schedule *result = (Schedule *) calloc (1, sizeof (Schedule));
 
-  for (int i = 0; i < SUBFRAME / 4; i++)
-    for (int j = 1; j <= TC_SLOT; j++)
+  //TC
+  for (int i = 0; i < 4; i++)
+    for (int j = 1; j <= PILOT(TC_SLOT); j++)
       result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
 
+  //TM
   double tm_time;
   int tm_slot, tm_location = 0, tm_subframe = 0;
   int temp;
   for (int i = 1; i <= setting->drone; i++)
   {
     tm_time = TM_SIZE / setting->rate[i-1];
-    tm_slot = (tm_time / ((double) SUBFRAME_SIZE / MINISLOT)) + 1; // ceiling
+    tm_slot = ceil(tm_time / ((double) SUBFRAME_SIZE / MINISLOT));
     
     if (tm_subframe >= 4)
     {
@@ -269,15 +280,15 @@ Schedule *evenly_distribute (Graph *setting)
       return result;
     }
 
-    if (WITHOUT_TC - tm_location >= tm_slot + 4) // preamble
+    if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
     {
       tm_slot += 4;
-      for (int j = 0; j < tm_slot; j++)
+      for (int j = 0; j < PILOT(tm_slot); j++)
         result->data[tm_subframe][tm_location + j] = i;
 
-      tm_location += tm_slot;
+      tm_location += PILOT(tm_slot);
         
-      if (WITHOUT_TC - tm_location <= 4)
+      if (WITHOUT_TC - tm_location <= 5)
       {
         tm_subframe++;
         tm_location = 0;
@@ -286,11 +297,12 @@ Schedule *evenly_distribute (Graph *setting)
 
     else
     {
-      temp = ((4 - tm_subframe) * (WITHOUT_TC - 4)) - tm_location;
+      temp = ((3 - tm_subframe) * PILOT_CHECK(WITHOUT_TC)) +\
+             PILOT_CHECK(WITHOUT_TC - tm_location);
       if (temp < tm_slot)
       {
         printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
-        printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i);  
+        printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
         for (int j = 1; j < SUBFRAME / 4; j++)
           memcpy (result, ((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
                   (sizeof (int) * MINISLOT * 4));
@@ -299,15 +311,15 @@ Schedule *evenly_distribute (Graph *setting)
 
       while (true)
       {
-        tm_slot += 4;
-        if (WITHOUT_TC - tm_location >= tm_slot)
+        if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
         {
-          for (int j = 0; j < tm_slot; j++)
+          tm_slot += 4;
+          for (int j = 0; j < PILOT(tm_slot); j++)
             result->data[tm_subframe][tm_location + j] = i;
 
-          tm_location += tm_slot;
+          tm_location += PILOT(tm_slot);
 
-          if (WITHOUT_TC - tm_location <= 4)
+          if (WITHOUT_TC - tm_location <= 5)
           {
             tm_subframe++;
             tm_location = 0;
@@ -321,7 +333,7 @@ Schedule *evenly_distribute (Graph *setting)
           for (int j = tm_location; j < WITHOUT_TC; j++)
             result->data[tm_subframe][j] = i;
           
-          tm_slot -= WITHOUT_TC - tm_location;
+          tm_slot -= PILOT_CHECK(WITHOUT_TC - tm_location);
           tm_subframe++;
           tm_location = 0;
         }
@@ -341,6 +353,7 @@ Schedule *evenly_distribute (Graph *setting)
 
   //
 
+  //Media
   int subframe_slot = 0;
   int temp_location;
   double media_time;
@@ -386,7 +399,7 @@ Schedule *evenly_distribute (Graph *setting)
       if (media_list[i-1] == false) continue;
       
       media_time = media_size / (setting->rate[i-1] * 6);
-      media_slot = (media_time / ((double) SUBFRAME_SIZE / MINISLOT)) + 1;
+      media_slot = ceil(media_time / ((double) SUBFRAME_SIZE / MINISLOT));
       
       if (subframe_slot >= 4)
       {
@@ -405,16 +418,16 @@ Schedule *evenly_distribute (Graph *setting)
         return result;
       }
 
-      if (remain_data[subframe_slot] >= media_slot + 4)
+      if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
       {
         media_slot += 4;
         temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
-        for (int j = 0; j < media_slot; j++)
+        for (int j = 0; j < PILOT(media_slot); j++)
           result->data[subframe_slot][temp_location + j] = i;
 
-        remain_data[subframe_slot] -= media_slot;
+        remain_data[subframe_slot] -= PILOT(media_slot);
         
-        if (remain_data[subframe_slot] <= 4)
+        if (remain_data[subframe_slot] <= 5)
           subframe_slot++;
       }
       
@@ -422,7 +435,7 @@ Schedule *evenly_distribute (Graph *setting)
       {
         temp = 0;
         for (int j = 0; j < SUBFRAME / 6; j++)
-          temp += remain_data[subframe_slot] - 4;
+          temp += PILOT_CHECK(remain_data[subframe_slot]);
 
         if (temp < media_slot)
         {
@@ -443,16 +456,16 @@ Schedule *evenly_distribute (Graph *setting)
 
         while (true)
         {
-          media_slot += 4;
-          if (media_slot <= remain_data[subframe_slot])
+          if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
           {
+            media_slot += 4;
             temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
-            for (int k = 0; k < media_slot; k++)
+            for (int k = 0; k < PILOT(media_slot); k++)
               result->data[subframe_slot][temp_location + k] = i;
 
-            remain_data[subframe_slot] -= media_slot;
+            remain_data[subframe_slot] -= PILOT(media_slot);
 
-            if (remain_data[subframe_slot] <= 4)
+            if (remain_data[subframe_slot] <= 5)
               subframe_slot++;
 
             break;
@@ -462,9 +475,9 @@ Schedule *evenly_distribute (Graph *setting)
           {
             temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
             for (int k = 0; k < remain_data[subframe_slot]; k++)
-            result->data[subframe_slot][temp_location + k] = i;
+              result->data[subframe_slot][temp_location + k] = i;
           
-            media_slot -= remain_data[subframe_slot];
+            media_slot -= PILOT_CHECK(remain_data[subframe_slot]);
             remain_data[subframe_slot] = 0;
             subframe_slot++;
           }
@@ -505,5 +518,6 @@ Schedule *evenly_distribute (Graph *setting)
 
   return result;
 }
+
 
    
