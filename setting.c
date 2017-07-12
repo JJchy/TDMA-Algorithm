@@ -3,15 +3,21 @@
 #include <string.h>
 #include <stdbool.h>
 #include <math.h>
+#include <assert.h>
 
 #define SUBFRAME 25
 #define MINISLOT 220
 #define SUBFRAME_SIZE 40000 // us
 #define RATIO 3 // 1:3
-#define PILOT(x) (ceil(((double)((x)-4))/RATIO)+(x)+4) // Allocation
+#define PILOT(x) (ceil((((double)(x))/RATIO)+(x)+4)) // Allocation
+// data -> allocation area
 #define PILOT_CHECK(x) (floor(((double)RATIO/(RATIO+1))*((x)-4))) // Check
+// remain area -> maximum data
 
-#define TC_SLOT PILOT(30)       // 4.265Mbps, 2500Bytes
+
+// error (MEDIA -> TC attack) (Why it happen)
+
+#define TC_SLOT PILOT(26)       // 4.265Mbps, 2500Bytes
 #define WITHOUT_TC (MINISLOT)-(TC_SLOT)
 #define SLOT_LOCATION(x) (WITHOUT_TC-(x))
 #define TM_SIZE 8000     // 1000Bytes
@@ -70,11 +76,11 @@ Schedule *round_robin (Graph *setting)
 
     if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
     {
-      tm_slot += 4;
       for (int j = 0; j < PILOT(tm_slot); j++)
         result->data[tm_subframe][tm_location + j] = i;
 
       tm_location += PILOT(tm_slot);
+      assert (tm_location <= WITHOUT_TC);
         
       if (WITHOUT_TC - tm_location <= 5)
       {
@@ -101,11 +107,11 @@ Schedule *round_robin (Graph *setting)
       {
         if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
         {
-          tm_slot += 4;
           for (int j = 0; j < PILOT(tm_slot); j++)
             result->data[tm_subframe][tm_location + j] = i;
 
           tm_location += PILOT(tm_slot);
+          assert (tm_location <= WITHOUT_TC);
 
           if (WITHOUT_TC - tm_location <= 5)
           {
@@ -127,12 +133,11 @@ Schedule *round_robin (Graph *setting)
         }
       }
     }
-
-    for (int j = 0; j < SUBFRAME / 4; j++)
-      memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-              result, (sizeof (int) * MINISLOT * 4));
-
   }
+
+  for (int i = 0; i < SUBFRAME / 4; i++)
+    memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * i),\
+            result, (sizeof (int) * MINISLOT * 4));
 
   // Ready to put media
   int remain_data[SUBFRAME - 1];
@@ -192,12 +197,12 @@ Schedule *round_robin (Graph *setting)
 
         if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
         {
-          media_slot += 4;
           temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
           for (int j = 0; j < PILOT(media_slot); j++)
             result->data[subframe_slot][temp_location + j] = i;
 
           remain_data[subframe_slot] -= PILOT(media_slot);
+          assert (remain_data[subframe_slot] >= 0);
         
           if (remain_data[subframe_slot] <= 5)
             subframe_slot++;
@@ -207,10 +212,8 @@ Schedule *round_robin (Graph *setting)
         {
           temp = 0;
           for (int j = 0; j < SUBFRAME - 1; j++)
-          {
             if (remain_data[j] > 5)  
               temp += PILOT_CHECK(remain_data[j]);
-          }
 
           if (temp < media_slot)
           {
@@ -228,12 +231,12 @@ Schedule *round_robin (Graph *setting)
           {
             if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
             {
-              media_slot += 4;
               temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
               for (int k = 0; k < PILOT(media_slot); k++)
                 result->data[subframe_slot][temp_location + k] = i;
 
               remain_data[subframe_slot] -= PILOT(media_slot);
+              assert (remain_data[subframe_slot] >= 0);
 
               if (remain_data[subframe_slot] <= 5)
                 subframe_slot++;
@@ -259,7 +262,6 @@ Schedule *round_robin (Graph *setting)
     if (is_video == false) break;
     is_video = false;
   }
-
   return result;
 }
 
@@ -294,11 +296,11 @@ Schedule *evenly_distribute (Graph *setting)
 
     if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
     {
-      tm_slot += 4;
       for (int j = 0; j < PILOT(tm_slot); j++)
         result->data[tm_subframe][tm_location + j] = i;
 
       tm_location += PILOT(tm_slot);
+      assert (tm_location <= WITHOUT_TC);
         
       if (WITHOUT_TC - tm_location <= 5)
       {
@@ -325,11 +327,11 @@ Schedule *evenly_distribute (Graph *setting)
       {
         if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
         {
-          tm_slot += 4;
           for (int j = 0; j < PILOT(tm_slot); j++)
             result->data[tm_subframe][tm_location + j] = i;
 
           tm_location += PILOT(tm_slot);
+          assert (tm_location <= WITHOUT_TC);
 
           if (WITHOUT_TC - tm_location <= 5)
           {
@@ -432,12 +434,12 @@ Schedule *evenly_distribute (Graph *setting)
 
       if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
       {
-        media_slot += 4;
         temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
         for (int j = 0; j < PILOT(media_slot); j++)
           result->data[subframe_slot][temp_location + j] = i;
 
         remain_data[subframe_slot] -= PILOT(media_slot);
+        assert (remain_data[subframe_slot] >= 0);
         
         if (remain_data[subframe_slot] <= 5)
           subframe_slot++;
@@ -471,12 +473,12 @@ Schedule *evenly_distribute (Graph *setting)
         {
           if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
           {
-            media_slot += 4;
             temp_location = SLOT_LOCATION (remain_data[subframe_slot]);
             for (int k = 0; k < PILOT(media_slot); k++)
               result->data[subframe_slot][temp_location + k] = i;
 
             remain_data[subframe_slot] -= PILOT(media_slot);
+            assert (remain_data[subframe_slot] >= 0);
 
             if (remain_data[subframe_slot] <= 5)
               subframe_slot++;
@@ -613,12 +615,12 @@ Schedule *modified_RR (Graph *setting)
 
     if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
     {
-      tm_slot += 4;
       for (int j = 0; j < PILOT(tm_slot); j++)
         result->data[tm_subframe][tm_location + j] = priority_num;
 
       tm_location += PILOT(tm_slot);
-        
+      assert (tm_location <= WITHOUT_TC); 
+
       if (WITHOUT_TC - tm_location <= 5)
       {
         tm_subframe++;
@@ -645,11 +647,11 @@ Schedule *modified_RR (Graph *setting)
       {
         if (PILOT_CHECK(WITHOUT_TC - tm_location) >= tm_slot)
         {
-          tm_slot += 4;
           for (int j = 0; j < PILOT(tm_slot); j++)
             result->data[tm_subframe][tm_location + j] = priority_num;
 
           tm_location += PILOT(tm_slot);
+          assert (tm_location <= WITHOUT_TC);
 
           if (WITHOUT_TC - tm_location <= 5)
           {
@@ -675,8 +677,8 @@ Schedule *modified_RR (Graph *setting)
     temp_list = temp_list->next;
   }
 
-  for (int j = 0; j < SUBFRAME / 4; j++)
-    memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
+  for (int i = 0; i < SUBFRAME / 4; i++)
+    memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * i),\
             result, (sizeof (int) * MINISLOT * 4));
 
   // Ready to put media
@@ -736,19 +738,19 @@ Schedule *modified_RR (Graph *setting)
             printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
                     priority_num,\
                     setting->audio[priority_num-1] - media_num);
-          printf ("(Success : %d)\n", i - 1);
+          printf ("(Success : %d)\n", i-1);
           printf ("NO MORE SLOT\n");
           return result;
         }
 
         if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
         {
-          media_slot += 4;
           temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
           for (int j = 0; j < PILOT(media_slot); j++)
             result->data[subframe_slot][temp_location + j] = priority_num;
-
+          
           remain_data[subframe_slot] -= PILOT(media_slot);
+          assert (remain_data[subframe_slot] >= 0);
         
           if (remain_data[subframe_slot] <= 5)
             subframe_slot++;
@@ -771,7 +773,7 @@ Schedule *modified_RR (Graph *setting)
               printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
                       priority_num,\
                       setting->audio[priority_num-1] - media_num);
-            printf ("(Success : %d)\n", i - 1);
+            printf ("(Success : %d)\n", i-1);
             printf ("The DATA is TOO big\n");  
             return result;
           }
@@ -780,12 +782,12 @@ Schedule *modified_RR (Graph *setting)
           {
             if (PILOT_CHECK(remain_data[subframe_slot]) >= media_slot)
             {
-              media_slot += 4;
               temp_location = SLOT_LOCATION(remain_data[subframe_slot]);
               for (int k = 0; k < PILOT(media_slot); k++)
                 result->data[subframe_slot][temp_location + k] = priority_num;
 
               remain_data[subframe_slot] -= PILOT(media_slot);
+              assert (remain_data[subframe_slot] >= 0);
 
               if (remain_data[subframe_slot] <= 5)
                 subframe_slot++;
