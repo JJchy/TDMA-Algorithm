@@ -14,15 +14,12 @@
 #define PILOT_CHECK(x) (floor(((double)RATIO/(RATIO+1))*((x)-4))) // Check
 // remain area -> maximum data
 
-
-// error (MEDIA -> TC attack) (Why it happen)
-
-#define TC_SLOT PILOT(26)       // 4.265Mbps, 2500Bytes
+#define TC_SLOT PILOT(2)       // 4.265Mbps, 102Bytes
 #define WITHOUT_TC (MINISLOT)-(TC_SLOT)
 #define SLOT_LOCATION(x) (WITHOUT_TC-(x))
-#define TM_SIZE 8000     // 1000Bytes
-#define VIDEO_SIZE 20480 // 2560Bytes
-#define AUDIO_SIZE 1184  // 148Bytes
+#define TM_SIZE 1024      // 128Bytes
+#define VIDEO_SIZE 512000 // 64KB
+#define AUDIO_SIZE 29600  // 3.7KB
 
 typedef struct
 {
