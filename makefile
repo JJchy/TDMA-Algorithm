@@ -1,5 +1,5 @@
 setting:
-	gcc setting.c -o setting -lm
+	gcc -std=c99 setting.c -o setting -lm
 
 clean:
 	rm setting
