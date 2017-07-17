@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 #include <stdbool.h>
 #include <math.h>
@@ -819,6 +820,9 @@ Schedule *modified_RR (Graph *setting)
 int main ()
 {
   Graph *setting = (Graph *) calloc (1, sizeof (Graph));
+  Graph *setting_1 = (Graph *) calloc (1, sizeof (Graph));
+  Graph *setting_2 = (Graph *) calloc (1, sizeof (Graph));
+  int cut = 55;
 
   setting->drone = 11;
   setting->rate[0] = 0.975;
@@ -839,23 +843,55 @@ int main ()
     setting->audio[i] = 1;
   }
 
-  //Schedule *result = round_robin (setting);
-  //Schedule *result = evenly_distribute (setting);
-  Schedule *result = modified_RR (setting);
+  memcpy (setting_1, setting, sizeof (Graph));
+  memcpy (setting_2, setting, sizeof (Graph));
 
-  int cut = 55;
+  printf ("\n\nRR Algorithm\n");
+  Schedule *result = round_robin (setting);
   for (int i = 0; i < SUBFRAME; i++)
   {
+    printf ("subframe %d :\n", i+1);
     for (int j = 0; j < 4; j++)
     {
       for (int k = 0; k < cut; k++)
         printf ("%2d", result->data[i][(cut * j) + k]);
       printf ("\n");
     }
-    printf ("/\n");
   }
-}
+  free (setting);
+  free (result);
 
+  printf ("\n\nED Algorithm\n");
+  Schedule *result_1 = evenly_distribute (setting_1);
+  for (int i = 0; i < SUBFRAME; i++)
+  {
+    printf ("subframe %d :\n", i+1);
+    for (int j = 0; j < 4; j++)
+    {
+      for (int k = 0; k < cut; k++)
+        printf ("%2d", result_1->data[i][(cut * j) + k]);
+      printf ("\n");
+    }
+  }
+  free (setting_1);
+  free (result_1);
+  
+  printf ("\n\nMRR Algorithm\n");
+  Schedule *result_2 = modified_RR (setting_2);
+  for (int i = 0; i < SUBFRAME; i++)
+  {
+    printf ("subframe %d :\n", i+1);
+    for (int j = 0; j < 4; j++)
+    {
+      for (int k = 0; k < cut; k++)
+        printf ("%2d", result_2->data[i][(cut * j) + k]);
+      printf ("\n");
+    }
+  }
+  free (setting_2);
+  free (result_2);
+
+}
 
 
 
