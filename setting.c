@@ -816,26 +816,34 @@ Schedule *modified_RR (Graph *setting)
 
   return result;
 }
-  
+
+/*
 int main ()
 {
   Graph *setting = (Graph *) calloc (1, sizeof (Graph));
   Graph *setting_1 = (Graph *) calloc (1, sizeof (Graph));
   Graph *setting_2 = (Graph *) calloc (1, sizeof (Graph));
+  Graph *setting_3 = (Graph *) calloc (1, sizeof (Graph));
+  
+  Schedule *result, *result_1, *result_2;
   int cut = 55;
 
-  setting->drone = 11;
-  setting->rate[0] = 0.975;
-  setting->rate[1] = 0.525;
-  setting->rate[2] = 1.42;
-  setting->rate[3] = 3.2;
-  setting->rate[4] = 1.06;
-  setting->rate[5] = 2.84;
-  setting->rate[6] = 4.265;
-  setting->rate[7] = 2.84;
-  setting->rate[8] = 1.42;
-  setting->rate[9] = 1.42;
-  setting->rate[10] = 0.97;
+  setting->drone = 15;
+  setting->rate[0] = 1.06;
+  setting->rate[1] = 0.26;
+  setting->rate[2] = 1.06;
+  setting->rate[3] = 2.13;
+  setting->rate[4] = 0.525;
+  setting->rate[5] = 3.2;
+  setting->rate[6] = 2.84;
+  setting->rate[7] = 0.26;
+  setting->rate[8] = 0.975;
+  setting->rate[9] = 0.525;
+  setting->rate[10] = 1.06;
+  setting->rate[11] = 0.395;
+  setting->rate[12] = 2.13;
+  setting->rate[13] = 0.71;
+  setting->rate[14] = 1.06;
 
   for (int i = 0; i < setting->drone; i++)
   {
@@ -843,8 +851,25 @@ int main ()
     setting->audio[i] = 1;
   }
 
-  memcpy (setting_1, setting, sizeof (Graph));
-  memcpy (setting_2, setting, sizeof (Graph));
+  //memcpy (setting_1, setting, sizeof (Graph));
+  //memcpy (setting_2, setting, sizeof (Graph));
+  
+  for (int i = 1; i <= 15; i++)
+  {
+    memcpy (setting_1, setting, sizeof (Graph));
+    memcpy (setting_2, setting, sizeof (Graph));
+    memcpy (setting_3, setting, sizeof (Graph));
+    setting_1->drone = i;
+    setting_2->drone = i;
+    setting_3->drone = i;
+    printf ("drone num : %d\n", i);
+    result = round_robin (setting_1);
+    result_1 = evenly_distribute (setting_2);
+    result_2 = modified_RR (setting_3);
+    free (result);
+    free (result_1);
+    free (result_2);
+  }
 
   printf ("\n\nRR Algorithm\n");
   Schedule *result = round_robin (setting);
@@ -890,8 +915,9 @@ int main ()
   }
   free (setting_2);
   free (result_2);
-
 }
+  */
+
 
 
 
