@@ -24,7 +24,7 @@
 #define WITHOUT_TC_PACKET (MINISLOT-TC_SLOT_PACKET)
 */
 
-#define SUBFRAME 25
+#define SUBFRAME 24 
 #define MINISLOT 220
 #define SUBFRAME_SIZE 40000 // us
 #define RATIO 3 // 1:3
@@ -46,16 +46,17 @@
 typedef struct
 {
   int drone;
-  double rate[15]; //Mbps
-  int video[15];
-  int audio[15];
-} Graph;
+  double rate[15];  //Mbps
+  double buffering; //
 
-// Output structure
-typedef struct
-{
-  int data[SUBFRAME][MINISLOT];
-} Schedule;
+  bool video[15];
+  bool video_preexist[15];
+  bool audio[15];
+  bool audio_preexist[15];
+
+  bool video_first;
+  bool preexist_first;
+} Graph;
 
 // For sorting
 typedef struct list Link;
@@ -67,6 +68,5 @@ typedef struct list
 
 Link *Priority_list;
 
-Schedule *round_robin (Graph *);
-Schedule *evenly_distribute (Graph *);
-Schedule *modified_RR (Graph *);
+int **round_robin (Graph *);
+int **modified_RR (Graph *);

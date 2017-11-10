@@ -1,4 +1,4 @@
-/* TDMA Scheduling function 
+/* TDMA Scheduling function
  * by CHY                    */
 
 #include "setting.h"
@@ -10,14 +10,18 @@ int find_packet_area (double packet_time, int left_slot)
   return floor (left_time / packet_time);
 }
 
-Schedule *round_robin (Graph *setting)
+int **round_robin (Graph *setting)
 {
-  Schedule *result = (Schedule *) calloc (1, sizeof (Schedule));
+  int subframe = ceil (SUBFRAME * setting->buffering);
+
+  int **result = (int **) calloc (subframe, sizeof (int *));
+  for (int i = 0; i < subframe; i++)
+    result[i] = (int *) calloc (MINISLOT, sizeof (int));
 
   //TC
   for (int i = 0; i < 4; i++)
     for (int j = 1; j <= TC_SLOT_PACKET; j++)
-      result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
+      result[i][MINISLOT - j] = 16;
 
   //TM
   double packet_time;
@@ -33,9 +37,9 @@ Schedule *round_robin (Graph *setting)
     {
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
       printf ("NO MORE SLOT\n");
-      for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                result, (sizeof (int) * MINISLOT * 4));
+      for (int j = 1; j < subframe / 4; j++)
+        for (int k = 0; k < 4; k++)
+          memcpy (result[4 * j + k], result[k], (sizeof (int) * MINISLOT));
       return result;
     }
 
@@ -46,9 +50,9 @@ Schedule *round_robin (Graph *setting)
     {
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
       printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
-      for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                result, (sizeof (int) * MINISLOT * 4));
+      for (int j = 1; j < subframe / 4; j++)
+        for (int k = 0; k < 4; k++)
+          memcpy (result[4 * j + k], result[k], (sizeof (int) * MINISLOT));
       return result;
     }
 
@@ -68,19 +72,20 @@ Schedule *round_robin (Graph *setting)
       tm_packet_slot = PILOT(ceil((able_packet_num * packet_time) /\
                                   ((double) SUBFRAME_SIZE / MINISLOT)));
       for (int j = 0; j < tm_packet_slot; j++)
-        result->data[tm_subframe][tm_location + j] = i;
+        result[tm_subframe][tm_location + j] = i;
+      
       tm_location += tm_packet_slot;
       tm_packet_num -= able_packet_num;
       assert (tm_location <= WITHOUT_TC_PACKET);
     }
   }
 
-  for (int i = 0; i < SUBFRAME / 4; i++)
-    memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * i),\
-            result, (sizeof (int) * MINISLOT * 4));
+  for (int j = 1; j < subframe / 4; j++)
+    for (int k = 0; k < 4; k++)
+      memcpy (result[4 * j + k], result[k], (sizeof (int) * MINISLOT));
 
   // Ready to put media
-  int remain_data[SUBFRAME - 1];
+  int remain_data[subframe];
   for (int i = 0; i < 4; i++)
   {
     if (i < tm_subframe)       remain_data[i] = 0;
@@ -90,268 +95,84 @@ Schedule *round_robin (Graph *setting)
     if (remain_data[i] <= 5) remain_data[i] = 0;
   }  
   
-  for (int i = 0; i < SUBFRAME / 4; i++)
+  for (int i = 0; i < subframe / 4; i++)
     memcpy (((void *) remain_data) + (sizeof (int) * 4 * i),\
             remain_data, (sizeof (int) * 4));
-
-  //
 
   // Media
   int subframe_slot = 0;
   int temp_location;
   double media_time;
   int media_packet_num, media_packet_slot;
-  int media_num, media_size, media_slot;
-  bool is_video = true;
+  int media_size, media_slot;
+  bool current_video, current_preexist, media_preexist;
+
+  if (setting->video_first == true) current_video = true;
+  else current_video = false;
+ 
+  current_preexist = true;
 
   while (true)
   {
     for (int i = 1; i <= setting->drone; i++)
     {
-      if (is_video == true) 
+      if (current_video == true) 
       {
-        media_num = setting->video[i-1];
-        media_size = VIDEO_SIZE;
+        if (!setting->video[i-1])
+          continue;
+
+        if (current_preexist)
+          if (!setting->video_preexist[i-1])
+            continue;
+
+        setting->video[i-1] = false;
+        media_preexist = setting->video_preexist[i-1];
+        media_size = VIDEO_SIZE * setting->buffering;
       }
       else  
       {
-        media_num = setting->audio[i-1];
-        media_size = AUDIO_SIZE;
-      }
-
-      while (media_num != 0)
-      {
-        media_num--;
-        media_packet_num = PACKET_NUM (media_size);
-        packet_time = PACKET_SIZE / setting->rate[i-1];
-
-        if (subframe_slot >= SUBFRAME - 1)
-        {
-          if (is_video == true)
-            printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n",\
-                    i, setting->video[i-1] - media_num);
-          else
-            printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
-                    i, setting->audio[i-1] - media_num);
-          printf ("NO MORE SLOT\n");
-          return result;
-        }
-
-        temp = 0;
-        for (int j = subframe_slot; j < SUBFRAME - 1; j++)
-          temp += find_packet_area (packet_time, remain_data[j]);
-
-        if (temp < media_packet_num)
-        {
-          if (is_video == true)
-            printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n",\
-                    i, setting->video[i-1] - media_num);
-          else
-            printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
-                    i, setting->audio[i-1] - media_num);
-          printf ("The DATA is TOO big\n");  
-          return result;
-        }
-
-        while (media_packet_num != 0)
-        {
-          assert (subframe_slot < SUBFRAME - 1);
-          able_packet_num = find_packet_area (packet_time,\
-                                              remain_data[subframe_slot]);
-          if (able_packet_num == 0)
-          {
-            subframe_slot++;
+        if (!setting->audio[i-1])
+          continue;
+        
+        if (current_preexist)
+          if (!setting->audio_preexist[i-1])
             continue;
-          }
-
-          able_packet_num = MIN(able_packet_num, media_packet_num);
-          media_packet_slot = PILOT(ceil((able_packet_num * packet_time) /\
-                                         ((double) SUBFRAME_SIZE / MINISLOT)));
-          temp_location = SLOT_LOCATION_PACKET(remain_data[subframe_slot]);
-          for (int j = 0; j < media_packet_slot; j++)
-            result->data[subframe_slot][temp_location + j] = i;
-
-          remain_data[subframe_slot] -= media_packet_slot;
-          media_packet_num -= able_packet_num;
-          assert (remain_data[subframe_slot] >= 0);
-        }
-      }
-    }
-
-    if (is_video == false) break;
-    is_video = false;
-  }
-  return result;
-}
-
-
-Schedule *evenly_distribute (Graph *setting)
-{
-  Schedule *result = (Schedule *) calloc (1, sizeof (Schedule));
-
-  //TC
-  for (int i = 0; i < 4; i++)
-    for (int j = 1; j <= TC_SLOT_PACKET; j++)
-      result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
-
-  //TM
-  double packet_time;
-  int tm_packet_num, tm_packet_slot, able_packet_num;
-  int tm_location = 0, tm_subframe = 0;
-  int temp;
-  for (int i = 1; i <= setting->drone; i++)
-  {
-    tm_packet_num = PACKET_NUM(TM_SIZE);
-    packet_time = PACKET_SIZE / setting->rate[i-1];
-    
-    if (tm_subframe >= 4)
-    {
-      printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
-      printf ("NO MORE SLOT\n");
-      for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                result, (sizeof (int) * MINISLOT * 4));
-      return result;
-    }
-
-    temp = ((3 - tm_subframe) *\
-            find_packet_area (packet_time, WITHOUT_TC_PACKET)) +\
-           find_packet_area (packet_time, WITHOUT_TC_PACKET - tm_location);
-    if (temp < tm_packet_num)
-    {
-      printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", i);
-      printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", i); 
-      for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                result, (sizeof (int) * MINISLOT * 4));
-      return result;
-    }
-
-    while (tm_packet_num != 0)
-    {
-      assert (tm_subframe < 4);
-      able_packet_num = find_packet_area (packet_time,\
-                                          WITHOUT_TC_PACKET - tm_location);
-      if (able_packet_num == 0) 
-      {
-        tm_subframe++;
-        tm_location = 0;
-        continue;
+        
+        setting->audio[i-1] = false;
+        media_preexist = setting->audio_preexist[i-1];
+        media_size = AUDIO_SIZE * setting->buffering;
       }
 
-      able_packet_num = MIN(able_packet_num, tm_packet_num);
-      tm_packet_slot = PILOT(ceil((able_packet_num * packet_time) /\
-                                  ((double) SUBFRAME_SIZE / MINISLOT)));
-      for (int j = 0; j < tm_packet_slot; j++)
-        result->data[tm_subframe][tm_location + j] = i;
-      tm_location += tm_packet_slot;
-      tm_packet_num -= able_packet_num;
-      assert (tm_location <= WITHOUT_TC_PACKET);
-    }
-  }
-
-  int remain_data[4];
-  for (int i = 0; i < 4; i++)
-  {
-    if (i < tm_subframe)       remain_data[i] = 0;
-    else if (i == tm_subframe) remain_data[i] = WITHOUT_TC_PACKET - tm_location;
-    else                       remain_data[i] = WITHOUT_TC_PACKET;
-    
-    if (remain_data[i] < 4) remain_data[i] = 0;
-  }  
-
-  //
-
-  //Media
-  int subframe_slot = 0;
-  int temp_location;
-  int media_num;
-  double media_time;
-  int media_size, media_slot;
-  int media_packet_num, media_packet_slot;
-  bool media_list[setting->drone];
-  bool is_video = true;
-  bool is_finish = false;
-
-  while (is_finish != true)
-  {
-    media_num = 1;
-    if (is_video == true) 
-    {
-      for (int i = 1; i <= setting->drone; i++)
-      {
-        if (setting->video[i-1] != 0)
-        {
-          media_list[i-1] = true;
-          setting->video[i-1]--;
-        }
-        else
-          media_list[i-1] = false;
-      }
-      media_size = VIDEO_SIZE;
-    }
-
-    else  
-    {
-      for (int i = 1; i <= setting->drone; i++)
-      {
-        if (setting->audio[i-1] != 0)
-        {
-          media_list[i-1] = true;
-          setting->audio[i-1]--;
-        }
-        else
-          media_list[i-1] = false;
-      }
-      media_size = AUDIO_SIZE;
-    }
-
-    for (int i = 1; i <= setting->drone; i++)
-    {
-      if (media_list[i-1] == false) continue;
-      
-      media_packet_num = PACKET_NUM (ceil(media_size / 6));
+      media_packet_num = PACKET_NUM (media_size);
       packet_time = PACKET_SIZE / setting->rate[i-1];
-      
-      if (subframe_slot >= 4)
-      {
-        if (is_video == true)
-          printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n", i, media_num);
-        else
-          printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n", i, media_num);
-        printf ("NO MORE SLOT\n");
-          
-        for (int j = 0; j < SUBFRAME / 4; j++)
-          memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                  result, (sizeof (int) * MINISLOT * 4));
 
+      if (subframe_slot >= subframe)
+      {
+        if (current_video == true)
+          printf ("DROP : %d(th/st/nd/rd)'s VIDEO is drop\n", i);
+        else
+          printf ("DROP : %d(th/st/nd/rd)'s AUDIO is drop\n", i);
+        printf ("NO MORE SLOT\n");
         return result;
       }
 
       temp = 0;
-      for (int j = 0; j < SUBFRAME / 6; j++)
+      for (int j = subframe_slot; j < subframe; j++)
         temp += find_packet_area (packet_time, remain_data[j]);
 
       if (temp < media_packet_num)
       {
-        if (is_video == true)
-          printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n", i,\
-                  media_num);
+        if (current_video == true)
+          printf ("DROP : %d(th/st/nd/rd)'s VIDEO is drop\n", i);
         else
-          printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n", i,\
-                  media_num);
+          printf ("DROP : %d(th/st/nd/rd)'s AUDIO is drop\n", i);
         printf ("The DATA is TOO big\n");  
-          
-        for (int j = 0; j < SUBFRAME / 4; j++)
-          memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                  result, (sizeof (int) * MINISLOT * 4));
-          
         return result;
       }
 
       while (media_packet_num != 0)
       {
-        assert (subframe_slot < SUBFRAME / 6);
+        assert (subframe_slot < subframe);
         able_packet_num = find_packet_area (packet_time,\
                                             remain_data[subframe_slot]);
         if (able_packet_num == 0)
@@ -365,58 +186,46 @@ Schedule *evenly_distribute (Graph *setting)
                                        ((double) SUBFRAME_SIZE / MINISLOT)));
         temp_location = SLOT_LOCATION_PACKET(remain_data[subframe_slot]);
         for (int j = 0; j < media_packet_slot; j++)
-          result->data[subframe_slot][temp_location + j] = i;
+          result[subframe_slot][temp_location + j] = i;
 
         remain_data[subframe_slot] -= media_packet_slot;
         media_packet_num -= able_packet_num;
         assert (remain_data[subframe_slot] >= 0);
       }
     }
+    
+    if ((!setting->preexist_first) && current_preexist)
+      current_preexist = false;
 
-    if (is_video == true)
+    else if ((setting->preexist_first) && (current_video && setting->video_first))
+      current_video = (!current_video);
+    
+    else
     {
-      is_video = false;
-      for (int i = 0; i < setting->drone; i++)
-      {
-        if (setting->video[i] != 0) 
-        {
-          is_video = true;
-          media_num++;
-          break;
-        }
-      }
+      current_video = (!current_video);
+      current_preexist = (!current_preexist);
     }
 
-    if (is_video == false)
-    {
-      is_finish = true;
-      for (int i = 0; i < setting->drone; i++)
-      {
-        if (setting->audio[i] != 0) 
-        {
-          is_finish = false;
-          media_num++;
-          break;
-        }
-      }
-    }
+    if ((current_video == setting->video_first) &&\
+        (current_preexist == true))
+      break;
+    
   }
-
-  for (int j = 0; j < SUBFRAME / 4; j++)
-    memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-            result, (sizeof (int) * MINISLOT * 4));
-
   return result;
 }
 
-Schedule *modified_RR (Graph *setting)
+int **modified_RR (Graph *setting)
 {
-  Schedule *result = (Schedule *) calloc (1, sizeof (Schedule));
+  int subframe = ceil (SUBFRAME * setting->buffering);
 
+  int **result = (int **) calloc (subframe, sizeof (int *));
+  for (int i = 0; i < subframe; i++)
+    result[i] = (int *) calloc (MINISLOT, sizeof (int));
+ 
   //TC
   for (int i = 0; i < 4; i++)
     for (int j = 1; j <= TC_SLOT_PACKET; j++)
-      result->data[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
+      result[i][MINISLOT - j] = 16; // 16 : GCS -> Drone (Broadcast)
 
   //Link
   Link *temp_list, *before_list = NULL;
@@ -481,9 +290,9 @@ Schedule *modified_RR (Graph *setting)
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", priority_num);
       printf ("(Success : %d)\n", i - 1);
       printf ("NO MORE SLOT\n");
-      for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                result, (sizeof (int) * MINISLOT * 4));
+      for (int j = 1; j < subframe / 4; j++)
+        for (int k = 0; k < 4; k++)
+          memcpy (result[4 * j + k], result[k], (sizeof (int) * MINISLOT));
       return result;
     }
 
@@ -495,9 +304,9 @@ Schedule *modified_RR (Graph *setting)
       printf ("DROP : %d(th/st/nd/rd) TM DATA is drop\n", priority_num);
       printf ("%d(th/st/nd/rd) TM DATA is TOO big\n", priority_num);
       printf ("(Success : %d)\n", i - 1);
-      for (int j = 1; j < SUBFRAME / 4; j++)
-        memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * j),\
-                result, (sizeof (int) * MINISLOT * 4));
+      for (int j = 1; j < subframe / 4; j++)
+        for (int k = 0; k < 4; k++)
+          memcpy (result[4 * j + k], result[k], (sizeof (int) * MINISLOT));
       return result;
     }
 
@@ -517,7 +326,8 @@ Schedule *modified_RR (Graph *setting)
       tm_packet_slot = PILOT(ceil((able_packet_num * packet_time) /\
                                   ((double) SUBFRAME_SIZE / MINISLOT)));
       for (int j = 0; j < tm_packet_slot; j++)
-        result->data[tm_subframe][tm_location + j] = priority_num;
+        result[tm_subframe][tm_location + j] = priority_num;
+      
       tm_location += tm_packet_slot;
       tm_packet_num -= able_packet_num;
       assert (tm_location <= WITHOUT_TC_PACKET);
@@ -526,12 +336,12 @@ Schedule *modified_RR (Graph *setting)
     temp_list = temp_list->next;
   }
 
-  for (int i = 0; i < SUBFRAME / 4; i++)
-    memcpy (((void *) result) + (sizeof (int) * MINISLOT * 4 * i),\
-            result, (sizeof (int) * MINISLOT * 4));
+  for (int j = 1; j < subframe / 4; j++)
+    for (int k = 0; k < 4; k++)
+      memcpy (result[4 * j + k], result[k], (sizeof (int) * MINISLOT));
 
   // Ready to put media
-  int remain_data[SUBFRAME - 1];
+  int remain_data[subframe];
   for (int i = 0; i < 4; i++)
   {
     if (i < tm_subframe)       remain_data[i] = 0;
@@ -541,7 +351,7 @@ Schedule *modified_RR (Graph *setting)
     if (remain_data[i] <= 5) remain_data[i] = 0;
   }  
   
-  for (int i = 0; i < SUBFRAME / 4; i++)
+  for (int i = 0; i < subframe / 4; i++)
     memcpy (((void *) remain_data) + (sizeof (int) * 4 * i),\
             remain_data, (sizeof (int) * 4));
 
@@ -552,9 +362,15 @@ Schedule *modified_RR (Graph *setting)
   int temp_location;
   double media_time;
   int media_packet_num, media_packet_slot;
-  int media_num, media_size, media_slot;
+  int media_size, media_slot;
   bool is_video = true;
+  bool current_video, current_preexist, media_preexist;
 
+  if (setting->video_first == true) current_video = true;
+  else current_video = false;
+  
+  current_preexist = true;
+  
   while (true)
   {
     temp_list = Priority_list;
@@ -562,191 +378,173 @@ Schedule *modified_RR (Graph *setting)
     {
       priority_num = temp_list->drone_num;
 
-      if (is_video == true) 
+      if (current_video == true) 
       {
-        media_num = setting->video[i-1];
-        media_size = VIDEO_SIZE;
+        if (!setting->video[priority_num - 1])
+          continue;
+        
+        if (current_preexist)
+          if (!setting->video_preexist[i-1])
+            continue;
+        
+        setting->video[priority_num - 1] = false;
+        media_preexist = setting->video_preexist[priority_num - 1];
+        media_size = VIDEO_SIZE * setting->buffering;
       }
       else  
       {
-        media_num = setting->audio[i-1];
-        media_size = AUDIO_SIZE;
+        if (!setting->audio[priority_num - 1])
+          continue;
+        
+        if (current_preexist)
+          if (!setting->audio_preexist[i-1])
+            continue;
+        
+        setting->audio[priority_num - 1] = false;
+        media_preexist = setting->audio_preexist[priority_num - 1];
+        media_size = AUDIO_SIZE * setting->buffering;
       }
 
-      while (media_num != 0)
+      media_packet_num = PACKET_NUM (media_size);
+      packet_time = PACKET_SIZE / setting->rate[priority_num - 1];
+
+      if (subframe_slot >= subframe)
       {
-        media_num--;
-        media_packet_num = PACKET_NUM (media_size);
-        packet_time = PACKET_SIZE / setting->rate[i-1];
+        if (current_video == true)
+          printf ("DROP : %d(th/st/nd/rd)'s VIDEO is drop\n",\
+                    priority_num);
+        else
+          printf ("DROP : %d(th/st/nd/rd)'s AUDIO is drop\n",\
+                  priority_num);
+        printf ("(Success : %d)\n", i-1);
+        printf ("NO MORE SLOT\n");
+        return result;
+      }
 
-        if (subframe_slot >= SUBFRAME - 1)
+      temp = 0;
+      for (int j = subframe_slot; j < subframe; j++)
+        temp += find_packet_area (packet_time, remain_data[j]);
+
+      if (temp < media_packet_num)
+      {
+        if (current_video == true)
+          printf ("DROP : %d(th/st/nd/rd)'s VIDEO is drop\n",\
+                  priority_num);
+        else
+          printf ("DROP : %d(th/st/nd/rd)'s AUDIO is drop\n",\
+                    priority_num);
+        printf ("(Success : %d)\n", i-1);
+        printf ("The DATA is TOO big\n");  
+        return result;
+      }
+
+      while (media_packet_num != 0)
+      {
+        assert (subframe_slot < subframe);
+        able_packet_num = find_packet_area (packet_time,\
+                                             remain_data[subframe_slot]);
+        if (able_packet_num == 0)
         {
-          if (is_video == true)
-            printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n",\
-                    priority_num,\
-                    setting->video[priority_num-1] - media_num);
-          else
-            printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
-                    priority_num,\
-                    setting->audio[priority_num-1] - media_num);
-          printf ("(Success : %d)\n", i-1);
-          printf ("NO MORE SLOT\n");
-          return result;
+          subframe_slot++;
+          continue;
         }
 
-        temp = 0;
-        for (int j = subframe_slot; j < SUBFRAME - 1; j++)
-          temp += find_packet_area (packet_time, remain_data[j]);
+        able_packet_num = MIN(able_packet_num, media_packet_num);
+        media_packet_slot = PILOT(ceil((able_packet_num * packet_time) /\
+                                       ((double) SUBFRAME_SIZE / MINISLOT)));
+        temp_location = SLOT_LOCATION_PACKET(remain_data[subframe_slot]);
+        for (int j = 0; j < media_packet_slot; j++)
+          result[subframe_slot][temp_location + j] = priority_num;
 
-        if (temp < media_packet_num)
-        {
-          if (is_video == true)
-            printf ("DROP : %d(th/st/nd/rd)'s VIDEO %d is drop\n",\
-                    priority_num,\
-                    setting->video[priority_num-1] - media_num);
-          else
-            printf ("DROP : %d(th/st/nd/rd)'s AUDIO %d is drop\n",\
-                    priority_num,\
-                    setting->audio[priority_num-1] - media_num);
-          printf ("(Success : %d)\n", i-1);
-          printf ("The DATA is TOO big\n");  
-          return result;
-        }
-
-        while (media_packet_num != 0)
-        {
-          assert (subframe_slot < SUBFRAME - 1);
-          able_packet_num = find_packet_area (packet_time,\
-                                              remain_data[subframe_slot]);
-          if (able_packet_num == 0)
-          {
-            subframe_slot++;
-            continue;
-          }
-
-          able_packet_num = MIN(able_packet_num, media_packet_num);
-          media_packet_slot = PILOT(ceil((able_packet_num * packet_time) /\
-                                         ((double) SUBFRAME_SIZE / MINISLOT)));
-          temp_location = SLOT_LOCATION_PACKET(remain_data[subframe_slot]);
-          for (int j = 0; j < media_packet_slot; j++)
-            result->data[subframe_slot][temp_location + j] = priority_num;
-
-          remain_data[subframe_slot] -= media_packet_slot;
-          media_packet_num -= able_packet_num;
-          assert (remain_data[subframe_slot] >= 0);
-        }
+        remain_data[subframe_slot] -= media_packet_slot;
+        media_packet_num -= able_packet_num;
+        assert (remain_data[subframe_slot] >= 0);
       }
       
       temp_list = temp_list->next;
     }
 
-    if (is_video == false) break;
-    is_video = false;
+    if ((!setting->preexist_first) && current_preexist)
+      current_preexist = false;
+
+    else if ((setting->preexist_first) && (current_video && setting->video_first))
+      current_video = (!current_video);
+    
+    else
+    {
+      current_video = (!current_video);
+      current_preexist = (!current_preexist);
+    }
+    
+    if ((current_video == setting->video_first) &&\
+        (current_preexist == true))
+      break;
   }
 
   return result;
 }
 
-
-int main ()
+int main (int argc, char **argv)
 {
   Graph *setting = (Graph *) calloc (1, sizeof (Graph));
-  Graph *setting_1 = (Graph *) calloc (1, sizeof (Graph));
-  Graph *setting_2 = (Graph *) calloc (1, sizeof (Graph));
-  Graph *setting_3 = (Graph *) calloc (1, sizeof (Graph));
+ 
+  double data_rate[13] = {4.265, 3.2, 2.84, 2.13, 1.595, 1.42, 1.06, 0.975, 0.71, 0.525, 0.395, 0.35, 0.26};
   
-  Schedule *result, *result_1, *result_2;
-  int cut = 55;
+  setting->drone = 5;
+  setting->rate[0] = data_rate [2];
+  setting->rate[1] = data_rate [2];
+  setting->rate[2] = data_rate [2];
+  setting->rate[3] = data_rate [2];
+  setting->rate[4] = data_rate [2];
 
-  setting->drone = 2;
-  setting->rate[0] = 3.2;
-  setting->rate[1] = 1.06;
-  setting->rate[2] = 1.06;
-  setting->rate[3] = 2.13;
-  setting->rate[4] = 0.525;
-  setting->rate[5] = 3.2;
-  setting->rate[6] = 2.84;
-  setting->rate[7] = 0.26;
-  setting->rate[8] = 0.975;
-  setting->rate[9] = 0.525;
-  setting->rate[10] = 1.06;
-  setting->rate[11] = 0.395;
-  setting->rate[12] = 2.13;
-  setting->rate[13] = 0.71;
-  setting->rate[14] = 1.06;
+  setting->buffering = 1;
 
   for (int i = 0; i < setting->drone; i++)
   {
-    setting->video[i] = 1;
-    setting->audio[i] = 1;
+    setting->video[i] = true;
+    setting->audio[i] = true;
+    setting->audio_preexist [i] = true;
   }
 
-  memcpy (setting_1, setting, sizeof (Graph));
-  memcpy (setting_2, setting, sizeof (Graph));
+  setting->video_first = true;
+  setting->preexist_first = false;
   
-  /*
-  for (int i = 1; i <= 15; i++)
+  if (argc != 1)
   {
-    memcpy (setting_1, setting, sizeof (Graph));
-    memcpy (setting_2, setting, sizeof (Graph));
-    memcpy (setting_3, setting, sizeof (Graph));
-    setting_1->drone = i;
-    setting_2->drone = i;
-    setting_3->drone = i;
-    printf ("drone num : %d\n", i);
-    result = round_robin (setting_1);
-    result_1 = evenly_distribute (setting_2);
-    result_2 = modified_RR (setting_3);
-    free (result);
-    free (result_1);
-    free (result_2);
+    setting->drone = atoi (argv[1]);
+    setting->video[0] = (argv[4][0] == 't') ? true : false;
+    setting->audio[0] = (argv[4][1] == 't') ? true : false;
+    setting->buffering = atof (argv[3]);
+    setting->video_first = (argv[5][0] == 't') ? true : false;
+    
+    for (int i = 0; i < setting->drone; i++)
+    {
+      setting->rate[i] = data_rate[atoi (argv[2]) - 1];
+      if (i == 0) continue;
+      setting->video[i] = setting->video[i - 1];
+      setting->audio[i] = setting->audio[i - 1];
+    }
   }
-  */
 
-  printf ("\n\nRR Algorithm\n");
-  result = round_robin (setting);
-  for (int i = 0; i < SUBFRAME; i++)
+  printf ("MRR Algorithm\n");
+  //int **result = modified_RR (setting);
+  int **result = round_robin (setting);
+  int index = 0;
+  for (int i = 0; i < ceil (SUBFRAME * setting->buffering); i++)
   {
-    printf ("subframe %d :\n", i+1);
+    if (i % 24 == 23) index++;
+    
+    printf ("subframe %d :\n", index + 1);
     for (int j = 0; j < 4; j++)
     {
-      for (int k = 0; k < cut; k++)
-        printf ("%2d", result->data[i][(cut * j) + k]);
+      for (int k = 0; k < 55; k++)
+        printf ("%2d", result[i][(55 * j) + k]);
       printf ("\n");
     }
+    index++;
   }
   free (setting);
   free (result);
-
-  printf ("\n\nED Algorithm\n");
-  result_1 = evenly_distribute (setting_1);
-  for (int i = 0; i < SUBFRAME; i++)
-  {
-    printf ("subframe %d :\n", i+1);
-    for (int j = 0; j < 4; j++)
-    {
-      for (int k = 0; k < cut; k++)
-        printf ("%2d", result_1->data[i][(cut * j) + k]);
-      printf ("\n");
-    }
-  }
-  free (setting_1);
-  free (result_1);
-  
-  printf ("\n\nMRR Algorithm\n");
-  result_2 = modified_RR (setting_2);
-  for (int i = 0; i < SUBFRAME; i++)
-  {
-    printf ("subframe %d :\n", i+1);
-    for (int j = 0; j < 4; j++)
-    {
-      for (int k = 0; k < cut; k++)
-        printf ("%2d", result_2->data[i][(cut * j) + k]);
-      printf ("\n");
-    }
-  }
-  free (setting_2);
-  free (result_2);
 }
 
 
