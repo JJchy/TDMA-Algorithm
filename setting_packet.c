@@ -532,7 +532,10 @@ int main (int argc, char **argv)
   int index = 0;
   for (int i = 0; i < ceil (SUBFRAME * setting->buffering); i++)
   {
-    if (i % 24 == 23) index++;
+    
+    if (i % 24 == 0) 
+      if (i != 0)
+        index++;
     
     printf ("subframe %d :\n", index + 1);
     for (int j = 0; j < 4; j++)
