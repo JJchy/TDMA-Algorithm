@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <math.h>
+#include <time.h>
 #include <assert.h>
 
 #define PACKET_DATA 1024   // It should be multiple of 8
@@ -47,7 +48,7 @@
 
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
 
-//#define SIMUL
+#define SIMUL
 
 // Input structure
 typedef struct
@@ -65,6 +66,12 @@ typedef struct
   bool preexist_first;
 } Graph;
 
+typedef struct
+{
+  bool video[15];
+  bool audio[15];
+} Media_Result;
+
 // For sorting
 typedef struct list Link;
 typedef struct list
@@ -75,5 +82,4 @@ typedef struct list
 
 Link *Priority_list;
 
-int **round_robin (Graph *);
-int **modified_RR (Graph *);
+int **MRR (Graph *, Media_Result *);
